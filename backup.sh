@@ -1,50 +1,54 @@
 #!/bin/bash
 # CONTICS - Respaldo Profesional con Subida a Nube
+# Identificador: SVR-ORACLE-NETBIRD
 
-# 1. Definir rutas
+# 1. Definir rutas y nombres
 PROJECT_DIR="$HOME/netbird"
 DATE=$(date +%Y-%m-%d)
-BACKUP_NAME="CONTICS_FULL_$DATE.tar.gz"
+BACKUP_NAME="CONTICS_NETBIRD_FULL_$DATE.tar.gz"
+REMOTE_FOLDER="CONTICS-NETBIRD-BACKUP-PROD"
 
-echo "=== 🚀 Iniciando Respaldo Nivel Senior (Docker + Drive) ==="
+echo "=== 🚀 Iniciando Respaldo Profesional (CONTICS-NETBIRD) ==="
 
-# 2. Detener contenedores para que la BD esté quieta
-cd $PROJECT_DIR
+# 2. Detener contenedores para asegurar la integridad de la BD
+cd "$PROJECT_DIR" || { echo "❌ Error: No se encontró el directorio $PROJECT_DIR"; exit 1; }
 docker compose down
 
-# 3. Crear área temporal
+# 3. Crear área temporal de trabajo
 mkdir -p /tmp/backup_temp
-cp -r $PROJECT_DIR/. /tmp/backup_temp/
+cp -r "$PROJECT_DIR/." /tmp/backup_temp/
 rm -f /tmp/backup_temp/*.tar.gz
 
-# 4. Extraer datos de la "Bóveda" de Docker
-echo "📦 Extrayendo volúmenes internos..."
+# 4. Extraer datos de los volúmenes internos de Docker
+echo "📦 Extrayendo volúmenes de datos..."
 docker run --rm -v netbird_netbird_management:/from -v /tmp/backup_temp:/to alpine tar -czf /to/data_mgmt.tar.gz -C /from .
 docker run --rm -v netbird_netbird_zdb_data:/from -v /tmp/backup_temp:/to alpine tar -czf /to/data_zdb.tar.gz -C /from .
 
 # 5. Crear el archivo comprimido FINAL
-echo "📚 Empacando todo el sistema..."
-tar -czf /tmp/$BACKUP_NAME -C /tmp/backup_temp .
+echo "📚 Empacando sistema completo..."
+tar -czf "/tmp/$BACKUP_NAME" -C /tmp/backup_temp .
 
-# 6. Limpiar y encender el servidor de inmediato
+# 6. Limpiar temporales locales y encender el servidor
 rm -rf /tmp/backup_temp
 docker compose up -d
 echo "✅ Servidor NetBird encendido de nuevo."
 
-# 7. --- SUBIDA A LA NUBE (Google Drive) ---
-if rclone listremotes | grep -q "drive:"; then
-    echo "☁️ Subiendo a Google Drive..."
-    rclone mkdir drive:backups_contics
-    rclone copy "/tmp/$BACKUP_NAME" drive:backups_contics/
+# 7. --- SUBIDA A GOOGLE DRIVE ---
+if rclone listremotes | grep -q "^drive:"; then
+    echo "☁️ Subiendo a la nube: drive:$REMOTE_FOLDER..."
+    
+    # Rclone crea la carpeta automáticamente si no existe
+    rclone copy "/tmp/$BACKUP_NAME" "drive:$REMOTE_FOLDER" -P
     
     if [ $? -eq 0 ]; then
-        echo "🚀 Respaldo asegurado en la nube."
-        rm "/tmp/$BACKUP_NAME"  # Borramos el temporal si se subió bien
+        echo "🚀 Respaldo asegurado con éxito en Drive."
+        rm "/tmp/$BACKUP_NAME"
     else
-        echo "⚠️ Falló la subida. El backup quedó en /tmp/$BACKUP_NAME"
+        echo "⚠️ Error en la subida. El archivo se guardó en /tmp/$BACKUP_NAME"
     fi
 else
-    echo "⚠️ Rclone no configurado. Backup guardado en /tmp/$BACKUP_NAME"
+    echo "❌ Error: Rclone no está configurado como 'drive'."
+    echo "El backup local está en: /tmp/$BACKUP_NAME"
 fi
 
-echo "=== ¡Proceso de CONTICS Finalizado! ==="
+echo "=== ¡Proceso Finalizado Exitosamente! ==="

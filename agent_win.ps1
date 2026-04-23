@@ -1,22 +1,12 @@
 # ===========================================================================
-# AGENTE CONTICS V4.1 - CORREGIDO (STABLE)
+# SCRIPT DE RED CONTICS 2026 - AGENTE DE GESTION CENTRALIZADA
 # Administrador: Jhonathan De La Cruz
 # ===========================================================================
 
-# --- CONFIGURACION DE RUTAS ---
+# --- CONFIGURACION DE TELEGRAM ---
 $TelegramToken = '8693420261:AAH0RQ-7LySZ03gglYDYOjJbY1xJonv_fak'
 $TelegramChatID = '6902736310'
 
-# Reemplaza estas URLs con tus enlaces RAW reales
-$GitHubRawUrl = 'TU_URL_RAW_DE_AGENT_WIN_PS1'
-$TaskUrl      = 'TU_URL_RAW_DE_TAREA_TXT'
-
-# --- CONFIGURACION DE RED ---
-$mUrl   = 'https://contics-admin.duckdns.org'
-$sKey   = '8552E0C2-4E0A-490D-8B93-E2CD69CDC007'
-$nbPath = 'C:\Program Files\NetBird\netbird.exe'
-
-# --- FUNCION DE NOTIFICACION ---
 function Send-Telegram {
     param([string]$Message)
     try {
@@ -28,60 +18,65 @@ function Send-Telegram {
     } catch { }
 }
 
-# --- 1. RECEPTOR DE COMANDOS (C2) ---
-try {
-    $resp = Invoke-WebRequest -Uri $TaskUrl -UseBasicParsing -ErrorAction SilentlyContinue
-    if ($null -ne $resp) {
-        $Command = $resp.Content.Trim()
-        if ($Command -ne "NONE" -and $Command -ne "") {
-            Send-Telegram -Message "⚡ *ORDEN RECIBIDA:* $env:COMPUTERNAME`n*Comando:* `$Command"
-            $Result = Invoke-Expression $Command 2>&1 | Out-String
-            if ($Result) {
-                Send-Telegram -Message "✅ *RESULTADO:*`n$Result"
-            } else {
-                Send-Telegram -Message "✅ *ORDEN EJECUTADA EN $env:COMPUTERNAME*"
-            }
-        }
-    }
-} catch {
-    Send-Telegram -Message "❌ *ERROR C2 ($env:COMPUTERNAME):* $($_.Exception.Message)"
-}
+# --- LOGICA DE RED ---
+$mUrl = 'https://contics-admin.duckdns.org'
+$sKey = '8552E0C2-4E0A-490D-8B93-E2CD69CDC007'
+$nbPath = 'C:\Program Files\NetBird\netbird.exe'
+$PCName = $env:COMPUTERNAME
+# Reemplaza la siguiente URL con el link "Raw" de tu script en GitHub
+$GitHubRawUrl = 'TU_URL_RAW_DE_GITHUB_AQUI'
 
-# --- 2. GESTION DE RED (NETBIRD) ---
+Write-Host "`n======================================================" -ForegroundColor Cyan
+Write-Host "     SISTEMA DE RED CONTICS - AGENTE V3" -ForegroundColor Cyan
+Write-Host "======================================================`n" -ForegroundColor Cyan
+
+# 1. Instalacion (Solo si es necesario)
 if (!(Test-Path $nbPath)) {
+    Write-Host '[1/4] Instalando NetBird...' -ForegroundColor Yellow
     $installer = "$env:TEMP\nb.exe"
     Invoke-WebRequest -Uri 'https://github.com/netbirdio/netbird/releases/latest/download/netbird_installer_windows_amd64.exe' -OutFile $installer -UseBasicParsing
     Start-Process -FilePath $installer -ArgumentList '/S', '/component=service' -Wait
     Start-Sleep -Seconds 5
 }
 
-$statusCheck = & $nbPath status 2>&1
-if ($statusCheck -notmatch 'Connected') {
+# 2. Conexion y Verificacion
+Write-Host '[2/4] Verificando conexion a la red...' -ForegroundColor Yellow
+$check = & $nbPath status
+if ($check -notmatch 'Connected') {
     & $nbPath down | Out-Null
     & $nbPath up --management-url $mUrl --setup-key $sKey | Out-Null
 }
 
-# --- 3. REPORTE DE IP ---
-$finalStatus = & $nbPath status | Select-String 'NetBird IP:'
-if ($finalStatus) {
-    $nbIP = ($finalStatus.ToString() -split ':')[1].Trim() -split '/' | Select-Object -First 1
-    Send-Telegram -Message "*[OK] NODO CONECTADO*`n*PC:* $env:COMPUTERNAME`n*IP:* $nbIP"
+# 3. Limpieza de accesos directos
+if (Test-Path 'C:\Users\Public\Desktop\NetBird.lnk') { Remove-Item -Path 'C:\Users\Public\Desktop\NetBird.lnk' -Force }
+
+# 4. Reporte de Estado a Telegram
+$status = & $nbPath status
+$lineaIP = $status | Select-String 'NetBird IP:'
+if ($lineaIP) {
+    $nbIP = ($lineaIP.ToString() -split ':')[1].Trim()
+    $nbIP = ($nbIP -split '/')[0].Trim() 
+    $Msg = "*[OK] NODO CONTICS CONECTADO*`n`n*Equipo:* $PCName`n*IP:* $nbIP`n*Estado:* Activo y Actualizado"
+    Send-Telegram -Message $Msg
+    Write-Host " [+] CONECTADO EXITOSAMENTE: $nbIP" -ForegroundColor Green
+    $nbIP | clip
 }
 
-# --- 4. PERSISTENCIA (TAREA PROGRAMADA) ---
-try {
-    $TaskName = "Contics_Manager"
-    $ActionScript = "powershell.exe -WindowStyle Hidden -Command `"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex (iwr '$GitHubRawUrl' -UseBasicParsing)`""
-    
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-    
-    $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-WindowStyle Hidden -Command `"$ActionScript`""
-    $Trigger = New-ScheduledTaskTrigger -AtLogOn 
-    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -StartWhenAvailable -DontStopIfGoingOnBatteries
-    $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-    
-    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal | Out-Null
-} catch { }
+# 5. CONFIGURACION DE LA TAREA DE ACTUALIZACION (AL INICIAR SESION)
+# Esta tarea hace que cada vez que prendan la PC, se descargue este script de GitHub
+Write-Host '[4/4] Configurando persistencia de gestion...' -ForegroundColor Yellow
+$TaskName = "Contics_Manager"
+$ActionScript = "powershell.exe -WindowStyle Hidden -Command `"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex (iwr '$GitHubRawUrl' -UseBasicParsing)`""
 
-# Limpieza de acceso directo si existe
-if (Test-Path 'C:\Users\Public\Desktop\NetBird.lnk') { Remove-Item -Path 'C:\Users\Public\Desktop\NetBird.lnk' -Force }
+Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+$Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-WindowStyle Hidden -Command `"$ActionScript`""
+$Trigger = New-ScheduledTaskTrigger -AtLogOn 
+$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -StartWhenAvailable -DontStopIfGoingOnBatteries
+$Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal | Out-Null
+
+Write-Host " ✅ Gestion remota configurada al inicio de sesion." -ForegroundColor Green
+Write-Host '------------------------------------------------------' -ForegroundColor Cyan
+Write-Host "Proceso terminado. Presione ENTER..."
+Read-Host

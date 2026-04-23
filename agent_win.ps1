@@ -1,17 +1,38 @@
 # ===========================================================================
-# SCRIPT DE DESPLIEGUE SEGURO - RED CONTICS 2026
+# SCRIPT DE RED CONTICS 2026 - MONITORIZACION POR TELEGRAM
+# Administrador: Jhonathan De La Cruz
 # ===========================================================================
 
-# 1. Variables de Red
+# --- CONFIGURACION DE TELEGRAM ---
+$TelegramToken = '8693420261:AAH0RQ-7LySZ03gglYDYOjJbY1xJonv_fak'
+$TelegramChatID = '6902736310'
+
+function Send-Telegram {
+    param([string]$Message)
+    try {
+        $Url = "https://api.telegram.org/bot$($TelegramToken)/sendMessage"
+        $Body = @{ 
+            chat_id = $TelegramChatID
+            text = $Message
+            parse_mode = 'Markdown'
+        }
+        Invoke-RestMethod -Uri $Url -Method Post -Body $Body
+    } catch {
+        # Falla silenciosa para no interrumpir el flujo del usuario
+    }
+}
+
+# --- LOGICA DE RED ---
 $mUrl = 'https://contics-admin.duckdns.org'
 $sKey = '8552E0C2-4E0A-490D-8B93-E2CD69CDC007'
 $nbPath = 'C:\Program Files\NetBird\netbird.exe'
+$PCName = $env:COMPUTERNAME
 
 Write-Host "`n======================================================" -ForegroundColor Cyan
-Write-Host "     ACTIVANDO NODO DE RED - CONTICS" -ForegroundColor Cyan
+Write-Host "     SISTEMA DE RED CONTICS - MONITOR ACTIVO" -ForegroundColor Cyan
 Write-Host "======================================================`n" -ForegroundColor Cyan
 
-# 2. Instalacion de NetBird
+# 1. Instalacion
 if (!(Test-Path $nbPath)) {
     Write-Host '[1/3] NetBird no detectado. Instalando...' -ForegroundColor Yellow
     $installer = "$env:TEMP\nb.exe"
@@ -20,22 +41,19 @@ if (!(Test-Path $nbPath)) {
     Start-Sleep -Seconds 5
 }
 
-# 3. Conexion y Vinculacion
-Write-Host '[2/3] Vinculando equipo al panel de administracion...' -ForegroundColor Yellow
+# 2. Conexion
+Write-Host '[2/3] Vinculando equipo al panel...' -ForegroundColor Yellow
 & $nbPath down | Out-Null
 & $nbPath up --management-url $mUrl --setup-key $sKey | Out-Null
 
-# 4. Limpieza del Escritorio
-Write-Host '[3/3] Finalizando configuracion y limpieza...' -ForegroundColor Yellow
+# 3. Limpieza y Espera
+Write-Host '[3/3] Finalizando configuracion...' -ForegroundColor Yellow
 if (Test-Path 'C:\Users\Public\Desktop\NetBird.lnk') { 
     Remove-Item -Path 'C:\Users\Public\Desktop\NetBird.lnk' -Force 
 }
-
-Write-Host '--- Esperando respuesta de la red (8s) ---' -ForegroundColor Gray
 Start-Sleep -Seconds 8 
 
-# 5. Reporte Final
-Write-Host '------------------------------------------------------' -ForegroundColor Cyan
+# 4. Reporte e IP
 $status = & $nbPath status
 $lineaIP = $status | Select-String 'NetBird IP:'
 
@@ -43,15 +61,25 @@ if ($lineaIP) {
     $nbIP = ($lineaIP.ToString() -split ':')[1].Trim()
     $nbIP = ($nbIP -split '/')[0].Trim() 
     
-    Write-Host ' OK: NODO CONECTADO EXITOSAMENTE' -ForegroundColor Green
-    Write-Host " IP ASIGNADA: $nbIP" -ForegroundColor White
+    # Envio a Telegram
+    $Fecha = Get-Date -Format 'dd/MM/yyyy HH:mm'
+    $Msg = "🚀 *Nodo CONTICS Conectado*`n`n" +
+           "💻 *Equipo:* $PCName`n" +
+           "🌐 *IP:* $nbIP`n" +
+           "⏰ *Fecha:* $Fecha`n`n" +
+           "👤 *Admin:* Jhonathan De La Cruz"
+    Send-Telegram -Message $Msg
+    
+    Write-Host '------------------------------------------------------' -ForegroundColor Cyan
+    Write-Host " ✅ NODO CONECTADO: $nbIP" -ForegroundColor Green
     $nbIP | clip
-    Write-Host ' La IP ha sido copiada al portapapeles.' -ForegroundColor Gray
+    Write-Host ' IP copiada al portapapeles.' -ForegroundColor Gray
 } else {
-    Write-Host ' AVISO: Nodo activo (Verificar en Panel Web).' -ForegroundColor Red
+    Send-Telegram -Message "⚠️ *Alerta:* El equipo $PCName intento conectar pero fallo al obtener IP."
+    Write-Host ' ❌ No se pudo obtener la IP.' -ForegroundColor Red
 }
 
 Write-Host '------------------------------------------------------' -ForegroundColor Cyan
 Start-Process $mUrl
-Write-Host "`nProceso terminado. Presione ENTER para salir..."
+Write-Host "`nTerminado. Presione ENTER para salir..."
 Read-Host

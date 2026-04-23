@@ -1,7 +1,10 @@
 # ===========================================================================
-# SCRIPT DE RED CONTICS 2026 - MONITORIZACION POR TELEGRAM
+# SCRIPT DE RED CONTICS 2026 - MONITORIZACION POR TELEGRAM (UTF-8 FIX)
 # Administrador: Jhonathan De La Cruz
 # ===========================================================================
+
+# Forzar codificacion UTF8 para que los emojis lleguen bien a Telegram
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # --- CONFIGURACION DE TELEGRAM ---
 $TelegramToken = '8693420261:AAH0RQ-7LySZ03gglYDYOjJbY1xJonv_fak'
@@ -16,9 +19,10 @@ function Send-Telegram {
             text = $Message
             parse_mode = 'Markdown'
         }
-        Invoke-RestMethod -Uri $Url -Method Post -Body $Body
+        # Forzamos la codificacion en la peticion web
+        Invoke-RestMethod -Uri $Url -Method Post -Body (ConvertTo-Json $Body) -ContentType "application/json; charset=utf-8"
     } catch {
-        # Falla silenciosa para no interrumpir el flujo del usuario
+        # Falla silenciosa
     }
 }
 
@@ -61,7 +65,7 @@ if ($lineaIP) {
     $nbIP = ($lineaIP.ToString() -split ':')[1].Trim()
     $nbIP = ($nbIP -split '/')[0].Trim() 
     
-    # Envio a Telegram
+    # Envio a Telegram con formato limpio
     $Fecha = Get-Date -Format 'dd/MM/yyyy HH:mm'
     $Msg = "🚀 *Nodo CONTICS Conectado*`n`n" +
            "💻 *Equipo:* $PCName`n" +
@@ -75,7 +79,7 @@ if ($lineaIP) {
     $nbIP | clip
     Write-Host ' IP copiada al portapapeles.' -ForegroundColor Gray
 } else {
-    Send-Telegram -Message "⚠️ *Alerta:* El equipo $PCName intento conectar pero fallo al obtener IP."
+    Send-Telegram -Message "⚠️ *Alerta:* El equipo $PCName fallo al obtener IP."
     Write-Host ' ❌ No se pudo obtener la IP.' -ForegroundColor Red
 }
 

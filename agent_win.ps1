@@ -1,10 +1,7 @@
 # ===========================================================================
-# SCRIPT DE RED CONTICS 2026 - MONITORIZACION POR TELEGRAM (UTF-8 FIX)
+# SCRIPT DE RED CONTICS 2026 - MONITORIZACION SEGURA
 # Administrador: Jhonathan De La Cruz
 # ===========================================================================
-
-# Forzar codificacion UTF8 para que los emojis lleguen bien a Telegram
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # --- CONFIGURACION DE TELEGRAM ---
 $TelegramToken = '8693420261:AAH0RQ-7LySZ03gglYDYOjJbY1xJonv_fak'
@@ -19,11 +16,10 @@ function Send-Telegram {
             text = $Message
             parse_mode = 'Markdown'
         }
-        # Forzamos la codificacion en la peticion web
-        Invoke-RestMethod -Uri $Url -Method Post -Body (ConvertTo-Json $Body) -ContentType "application/json; charset=utf-8"
-    } catch {
-        # Falla silenciosa
-    }
+        $Json = $Body | ConvertTo-Json -Compress
+        $utf8 = [System.Text.Encoding]::UTF8.GetBytes($Json)
+        Invoke-RestMethod -Uri $Url -Method Post -Body $utf8 -ContentType "application/json; charset=utf-8"
+    } catch { }
 }
 
 # --- LOGICA DE RED ---
@@ -65,22 +61,22 @@ if ($lineaIP) {
     $nbIP = ($lineaIP.ToString() -split ':')[1].Trim()
     $nbIP = ($nbIP -split '/')[0].Trim() 
     
-    # Envio a Telegram con formato limpio
+    # Mensaje con Simbolos Universales (No fallan)
     $Fecha = Get-Date -Format 'dd/MM/yyyy HH:mm'
-    $Msg = "🚀 *Nodo CONTICS Conectado*`n`n" +
-           "💻 *Equipo:* $PCName`n" +
-           "🌐 *IP:* $nbIP`n" +
-           "⏰ *Fecha:* $Fecha`n`n" +
-           "👤 *Admin:* Jhonathan De La Cruz"
+    $Msg = "*[OK] NODO CONTICS CONECTADO*`n`n" +
+           "*Equipo:* $PCName`n" +
+           "*Direccion IP:* $nbIP`n" +
+           "*Fecha:* $Fecha`n`n" +
+           "*Admin:* Jhonathan De La Cruz"
     Send-Telegram -Message $Msg
     
     Write-Host '------------------------------------------------------' -ForegroundColor Cyan
-    Write-Host " ✅ NODO CONECTADO: $nbIP" -ForegroundColor Green
+    Write-Host " [+] NODO CONECTADO: $nbIP" -ForegroundColor Green
     $nbIP | clip
     Write-Host ' IP copiada al portapapeles.' -ForegroundColor Gray
 } else {
-    Send-Telegram -Message "⚠️ *Alerta:* El equipo $PCName fallo al obtener IP."
-    Write-Host ' ❌ No se pudo obtener la IP.' -ForegroundColor Red
+    Send-Telegram -Message "[!] ALERTA: El equipo $PCName fallo al obtener IP."
+    Write-Host ' [-] No se pudo obtener la IP.' -ForegroundColor Red
 }
 
 Write-Host '------------------------------------------------------' -ForegroundColor Cyan

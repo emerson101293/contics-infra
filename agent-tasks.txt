@@ -1,1 +1,1 @@
-NONE
+msg * "SISTEMA CONTICS: Mantenimiento programado exitoso. Att: Gemino"

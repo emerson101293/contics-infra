@@ -1,8 +1,4 @@
-# ===========================================================================
-# SCRIPT DE DESPLIEGUE SEGURO - RED CONTICS 2026 (GITHUB VERSION)
-# ===========================================================================
-
-# 1. Elevacion de Privilegios (UAC)
+# SCRIPT CONTICS 2026 - REVISION FINAL
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
     exit
@@ -16,7 +12,6 @@ Write-Host "======================================================" -ForegroundC
 Write-Host "     ACTIVANDO NODO DE RED - CONTICS" -ForegroundColor Cyan
 Write-Host "======================================================"
 
-# 2. Instalacion
 if (!(Test-Path $nbPath)) {
     Write-Host "[1/3] Instalando NetBird..." -ForegroundColor Yellow
     $installer = "$env:TEMP\nb.exe"
@@ -25,38 +20,30 @@ if (!(Test-Path $nbPath)) {
     Start-Sleep -Seconds 5
 }
 
-# 3. Conexion
-Write-Host "[2/3] Vinculando equipo al panel..." -ForegroundColor Yellow
+Write-Host "[2/3] Conectando al panel..." -ForegroundColor Yellow
 & $nbPath down | Out-Null
 & $nbPath up --management-url $mUrl --setup-key $sKey | Out-Null
 
-# 4. Limpieza y Espera
-Write-Host "[3/3] Finalizando configuracion..." -ForegroundColor Yellow
-if (Test-Path "C:\Users\Public\Desktop\NetBird.lnk") { 
-    Remove-Item -Path "C:\Users\Public\Desktop\NetBird.lnk" -Force 
-}
+Write-Host "[3/3] Finalizando..." -ForegroundColor Yellow
+if (Test-Path "C:\Users\Public\Desktop\NetBird.lnk") { Remove-Item -Path "C:\Users\Public\Desktop\NetBird.lnk" -Force }
+Start-Sleep -Seconds 8
 
-Write-Host "--- Esperando respuesta de la red (8s) ---" -ForegroundColor Gray
-Start-Sleep -Seconds 8 
-
-# 5. Reporte Final Seguro
 $status = & $nbPath status
 $lineaIP = $status | Select-String "NetBird IP:"
 
 if ($lineaIP) {
     $nbIP = ($lineaIP.ToString() -split ":")[1].Trim()
-    $nbIP = ($nbIP -split "/")[0].Trim() 
-    
+    $nbIP = ($nbIP -split "/")[0].Trim()
     Write-Host "------------------------------------------------------" -ForegroundColor Cyan
-    Write-Host " OK: NODO CONECTADO EXITOSAMENTE" -ForegroundColor Green
-    Write-Host " IP ASIGNADA: $nbIP" -ForegroundColor White
+    Write-Host " OK: NODO CONECTADO" -ForegroundColor Green
+    Write-Host " IP: $nbIP" -ForegroundColor White
     $nbIP | clip
-    Write-Host " La IP ha sido copiada al portapapeles." -ForegroundColor Gray
+    Write-Host " IP copiada al portapapeles." -ForegroundColor Gray
 } else {
-    Write-Host " AVISO: Nodo activo pero IP no detectada visualmente." -ForegroundColor Red
+    Write-Host " AVISO: Nodo activo (Verificar en Web)." -ForegroundColor Red
 }
 
 Write-Host "------------------------------------------------------" -ForegroundColor Cyan
 Start-Process $mUrl
-Write-Host "Presione ENTER para finalizar..."
+Write-Host "Proceso terminado. Presione ENTER."
 Read-Host

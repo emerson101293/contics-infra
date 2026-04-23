@@ -87,7 +87,7 @@ $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccou
 # Registramos la tarea sin el bloque de repeticion de cada hora
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal | Out-Null
 
-Write-Host " ✅ Persistencia configurada solo para inicio de sesión." -ForegroundColor Green
+Write-Host " Persistencia configurada solo para inicio de sesión." -ForegroundColor Green
 Write-Host '------------------------------------------------------' -ForegroundColor Cyan
 Start-Process $mUrl
 Write-Host "`nTerminado."

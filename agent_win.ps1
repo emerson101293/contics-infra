@@ -1,5 +1,5 @@
 # ===========================================================================
-# SCRIPT DE DESPLIEGUE SEGURO - RED CONTICS 2026 (FINAL STABLE)
+# SCRIPT DE DESPLIEGUE SEGURO - RED CONTICS 2026
 # ===========================================================================
 
 # 1. Variables de Red
@@ -15,9 +15,7 @@ Write-Host "======================================================`n" -Foregroun
 if (!(Test-Path $nbPath)) {
     Write-Host '[1/3] NetBird no detectado. Instalando...' -ForegroundColor Yellow
     $installer = "$env:TEMP\nb.exe"
-    # Descarga directa desde GitHub oficial
     Invoke-WebRequest -Uri 'https://github.com/netbirdio/netbird/releases/latest/download/netbird_installer_windows_amd64.exe' -OutFile $installer -UseBasicParsing
-    Write-Host '     Ejecutando instalador silencioso...' -ForegroundColor Gray
     Start-Process -FilePath $installer -ArgumentList '/S', '/component=service' -Wait
     Start-Sleep -Seconds 5
 }
@@ -45,12 +43,12 @@ if ($lineaIP) {
     $nbIP = ($lineaIP.ToString() -split ':')[1].Trim()
     $nbIP = ($nbIP -split '/')[0].Trim() 
     
-    Write-Host ' ✅ CONECTADO EXITOSAMENTE' -ForegroundColor Green
-    Write-Host " 📍 IP ASIGNADA: $nbIP" -ForegroundColor White
+    Write-Host ' OK: NODO CONECTADO EXITOSAMENTE' -ForegroundColor Green
+    Write-Host " IP ASIGNADA: $nbIP" -ForegroundColor White
     $nbIP | clip
     Write-Host ' La IP ha sido copiada al portapapeles.' -ForegroundColor Gray
 } else {
-    Write-Host ' ⚠️ Nodo activo pero IP no detectada. Revisa el panel web.' -ForegroundColor Red
+    Write-Host ' AVISO: Nodo activo (Verificar en Panel Web).' -ForegroundColor Red
 }
 
 Write-Host '------------------------------------------------------' -ForegroundColor Cyan

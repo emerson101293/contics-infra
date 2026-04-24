@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===========================================================================
-# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.5) - CONTICS
+# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.6) - CONTICS
 # ===========================================================================
 # Autor: Gemino - CONTICS
 # Funcionalidad: Diagnóstico + Inyección Docker + Reporte URL + Login de NetBird
@@ -32,11 +32,9 @@ clear
 echo -e "${GREEN}🔍 INICIANDO DIAGNÓSTICO DE MIGRACIÓN...${NC}"
 echo "----------------------------------------------------------"
 
-# 1. Identificación de Usuario del Sistema (Solo para log local)
 USUARIO_SISTEMA=$(whoami)
 echo -e "👤 Usuario del sistema: ${YELLOW}$USUARIO_SISTEMA${NC}"
 
-# 2. Verificación de Docker y Rclone
 if ! command -v docker &> /dev/null; then
     echo -e "${RED}❌ ERROR: Docker no está instalado.${NC}"
     exit 1
@@ -46,20 +44,15 @@ if ! rclone listremotes | grep -q "^drive:"; then
     exit 1
 fi
 
-# 3. Verificación de Firewall y Puertos (Crítico para Oracle Cloud)
 echo -e "📡 Verificando accesibilidad de puertos..."
 PUERTOS=(80 443 33073 10000)
 for port in "${PUERTOS[@]}"; do
     if command -v iptables &> /dev/null; then
         if ! sudo iptables -L INPUT -n | grep -q "dpt:$port"; then
-            echo -e "${YELLOW}⚠️  ADVERTENCIA: Puerto $port podría estar cerrado en el Firewall local.${NC}"
+            echo -e "${YELLOW}⚠️  ADVERTENCIA: Puerto $port podría estar cerrado.${NC}"
         fi
     fi
 done
-
-# 4. Memoria RAM
-RAM_LIBRE=$(free -m | awk '/^Mem:/{print $4}')
-echo -e "🧠 RAM Disponible: ${YELLOW}$RAM_LIBRE MB${NC}"
 
 echo -e "✅ ${GREEN}Diagnóstico completado.${NC}"
 echo "----------------------------------------------------------"
@@ -98,7 +91,6 @@ echo "📝 Restaurando archivos de configuración (.env, setup.env)..."
 cp -r $TEMP_RESTORE/* "$PROJECT_DIR/" 2>/dev/null
 rm -f "$PROJECT_DIR"/*.tar.gz
 
-# Sincronizar Cron con GitHub
 echo "🔄 Configurando respaldo automático desde GitHub..."
 (crontab -l 2>/dev/null | grep -v "backup_pro_contics.sh"; echo "00 03 * * * curl -sSL $GITHUB_PRO_URL | bash") | crontab -
 
@@ -109,29 +101,27 @@ $DOCKER_CMD up -d
 echo -e "⌛ Esperando estabilización del sistema (15s)..."
 sleep 15
 
-# BUSQUEDA DEL NOMBRE DE USUARIO DE INICIO DE SESIÓN (LOGIN)
-# Buscamos el correo de Zitadel o el usuario admin de NetBird
+# BUSQUEDA DEL NOMBRE DE USUARIO DE LOGIN
 NETBIRD_USER=$(grep -oP '(?<=NETBIRD_ZITADEL_ADMIN_USER=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 if [ -z "$NETBIRD_USER" ]; then
     NETBIRD_USER=$(grep -oP '(?<=CITADEL_ADMIN_EMAIL=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 fi
-if [ -z "$NETBIRD_USER" ]; then
-    NETBIRD_USER=$(grep -oP '(?<=NETBIRD_MANAGEMENT_USER=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
-fi
 
-# Fallback si no se encuentra en variables (Búsqueda por patrón de correo)
-if [ -z "$NETBIRD_USER" ]; then
-    NETBIRD_USER=$(grep -rE -o "\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}\b" "$PROJECT_DIR" --include="*.env" --include="*.json" | head -n 1 | cut -d: -f2)
-fi
-
-# BUSQUEDA DEL DOMINIO
+# BUSQUEDA DEL DOMINIO (Lógica Ultra-Resistente)
+# 1. Intentar desde variables oficiales
 DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 [ -z "$DOMINIO" ] && DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 
+# 2. Si falla, intentar extraerlo del LOGIN USER (Ej: admin@contics-admin.duckdns.org -> contics-admin.duckdns.org)
+if [ -z "$DOMINIO" ] && [[ "$NETBIRD_USER" == *"@"* ]]; then
+    DOMINIO=$(echo "$NETBIRD_USER" | cut -d'@' -f2)
+fi
+
 # CONSTRUCCIÓN DE LA URL
-if [ ! -z "$DOMINIO" ]; then
+if [ ! -z "$DOMINIO" ] && [[ "$DOMINIO" != *" "* ]]; then
     URL_DASHBOARD="https://$DOMINIO/peers"
 else
+    # Solo si todo lo anterior falla, usamos la IP
     URL_DASHBOARD="https://$(curl -s https://ifconfig.me)/peers"
 fi
 
@@ -144,13 +134,12 @@ if [ "$SERVICIOS_ACTIVOS" -gt 0 ]; then
     echo -e "👤 LOGIN USER: ${YELLOW}${NETBIRD_USER:-No detectado}${NC}"
     echo -e "=========================================================="
     
-    MENSAJE="✅ *SISTEMA RECUPERADO*%0A%0A👤 *Login:* ${NETBIRD_USER:-No detectado}%0A🌐 *URL:* $URL_DASHBOARD%0A📦 *Paquete:* $BACKUP_FILE%0A🚀 *Estado:* Netbird Online"
+    MENSAJE="✅ *SISTEMA RECUPERADO*%0A%0A👤 *Login:* \`${NETBIRD_USER:-No detectado}\` %0A🌐 *URL:* $URL_DASHBOARD%0A📦 *Paquete:* $BACKUP_FILE%0A🚀 *Estado:* Netbird Online"
     enviar_telegram "$MENSAJE"
 else
     echo -e "${RED}⚠️ ERROR: Los servicios no iniciaron correctamente.${NC}"
     enviar_telegram "❌ *ERROR CRÍTICO*: Servicios caídos tras restauración."
 fi
 
-# Limpieza final
 rm -rf $TEMP_RESTORE
 rm -f "/tmp/$BACKUP_FILE"

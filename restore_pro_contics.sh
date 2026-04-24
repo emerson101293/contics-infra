@@ -1,9 +1,9 @@
 #!/bin/bash
 # ===========================================================================
-# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.6) - CONTICS
+# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.6.4) - CONTICS
 # ===========================================================================
 # Autor: Gemino - CONTICS
-# Funcionalidad: Diagnóstico + Inyección Docker + Reporte URL + Login de NetBird
+# Mejora: Sincronización Local de Backup (Sin ejecución directa desde URL)
 # ===========================================================================
 
 # --- [ CONFIGURACIÓN ] ---
@@ -44,16 +44,6 @@ if ! rclone listremotes | grep -q "^drive:"; then
     exit 1
 fi
 
-echo -e "📡 Verificando accesibilidad de puertos..."
-PUERTOS=(80 443 33073 10000)
-for port in "${PUERTOS[@]}"; do
-    if command -v iptables &> /dev/null; then
-        if ! sudo iptables -L INPUT -n | grep -q "dpt:$port"; then
-            echo -e "${YELLOW}⚠️  ADVERTENCIA: Puerto $port podría estar cerrado.${NC}"
-        fi
-    fi
-done
-
 echo -e "✅ ${GREEN}Diagnóstico completado.${NC}"
 echo "----------------------------------------------------------"
 
@@ -91,8 +81,17 @@ echo "📝 Restaurando archivos de configuración (.env, setup.env)..."
 cp -r $TEMP_RESTORE/* "$PROJECT_DIR/" 2>/dev/null
 rm -f "$PROJECT_DIR"/*.tar.gz
 
-echo "🔄 Configurando respaldo automático desde GitHub..."
-(crontab -l 2>/dev/null | grep -v "backup_pro_contics.sh"; echo "00 03 * * * curl -sSL $GITHUB_PRO_URL | bash") | crontab -
+# --- [ MEJORA: AUTOMATIZACIÓN DE BACKUP LOCAL ] ---
+echo -e "🔄 Actualizando script de respaldo local desde GitHub..."
+# Eliminamos cualquier versión anterior para asegurar la actualización
+rm -f "$PROJECT_DIR/backup_pro.sh"
+curl -sSL "$GITHUB_PRO_URL" -o "$PROJECT_DIR/backup_pro.sh"
+chmod +x "$PROJECT_DIR/backup_pro.sh"
+
+echo "📅 Configurando Crontab (3:00 AM)..."
+# Limpiamos crons viejos de backup para no duplicar y agregamos el nuevo apuntando al archivo local
+(crontab -l 2>/dev/null | grep -vE "backup_pro_contics.sh|backup_pro.sh"; echo "00 03 * * * /bin/bash $PROJECT_DIR/backup_pro.sh >> $PROJECT_DIR/backup_local.log 2>&1") | crontab -
+# --------------------------------------------------
 
 echo -e "${GREEN}🚀 Levantando infraestructura...${NC}"
 $DOCKER_CMD up -d
@@ -101,27 +100,20 @@ $DOCKER_CMD up -d
 echo -e "⌛ Esperando estabilización del sistema (15s)..."
 sleep 15
 
-# BUSQUEDA DEL NOMBRE DE USUARIO DE LOGIN
+# BUSQUEDA DE DATOS (Lógica de la v4.6)
 NETBIRD_USER=$(grep -oP '(?<=NETBIRD_ZITADEL_ADMIN_USER=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
-if [ -z "$NETBIRD_USER" ]; then
-    NETBIRD_USER=$(grep -oP '(?<=CITADEL_ADMIN_EMAIL=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
-fi
+[ -z "$NETBIRD_USER" ] && NETBIRD_USER=$(grep -oP '(?<=CITADEL_ADMIN_EMAIL=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 
-# BUSQUEDA DEL DOMINIO (Lógica Ultra-Resistente)
-# 1. Intentar desde variables oficiales
 DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 [ -z "$DOMINIO" ] && DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 
-# 2. Si falla, intentar extraerlo del LOGIN USER (Ej: admin@contics-admin.duckdns.org -> contics-admin.duckdns.org)
 if [ -z "$DOMINIO" ] && [[ "$NETBIRD_USER" == *"@"* ]]; then
     DOMINIO=$(echo "$NETBIRD_USER" | cut -d'@' -f2)
 fi
 
-# CONSTRUCCIÓN DE LA URL
 if [ ! -z "$DOMINIO" ] && [[ "$DOMINIO" != *" "* ]]; then
     URL_DASHBOARD="https://$DOMINIO/peers"
 else
-    # Solo si todo lo anterior falla, usamos la IP
     URL_DASHBOARD="https://$(curl -s https://ifconfig.me)/peers"
 fi
 
@@ -134,7 +126,7 @@ if [ "$SERVICIOS_ACTIVOS" -gt 0 ]; then
     echo -e "👤 LOGIN USER: ${YELLOW}${NETBIRD_USER:-No detectado}${NC}"
     echo -e "=========================================================="
     
-    MENSAJE="✅ *SISTEMA RECUPERADO*%0A%0A👤 *Login:* \`${NETBIRD_USER:-No detectado}\` %0A🌐 *URL:* $URL_DASHBOARD%0A📦 *Paquete:* $BACKUP_FILE%0A🚀 *Estado:* Netbird Online"
+    MENSAJE="✅ *SISTEMA RECUPERADO*%0A%0A👤 *Login:* \`${NETBIRD_USER:-No detectado}\` %0A🌐 *URL:* $URL_DASHBOARD%0A🚀 *Estado:* Online y Sincronizado Local"
     enviar_telegram "$MENSAJE"
 else
     echo -e "${RED}⚠️ ERROR: Los servicios no iniciaron correctamente.${NC}"

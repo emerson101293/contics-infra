@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===========================================================================
-# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.0) - CONTICS
+# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.1) - CONTICS
 # ===========================================================================
 # Autor: Gemino - CONTICS
 # Funcionalidad: Diagnóstico de red/firewall + Inyección Docker + Reporte URL
@@ -110,19 +110,20 @@ $DOCKER_CMD up -d
 echo -e "⌛ Esperando estabilización del sistema (15s)..."
 sleep 15
 
-# Detectar Dominio desde setup.env para generar URL de acceso
-DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | head -n 1)
+# EXTRACCIÓN LIMPIA DEL DOMINIO
+# Buscamos NETBIRD_DOMAIN, quitamos comillas, espacios y aseguramos que solo traiga la cadena de texto
+DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs | head -n 1)
 
-# Si el dominio está vacío, intentar buscar en el archivo .env principal
 if [ -z "$DOMINIO" ]; then
-    DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/.env" 2>/dev/null | head -n 1)
+    DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs | head -n 1)
 fi
 
-# Fallback final si no se encuentra dominio configurado
-if [ -z "$DOMINIO" ]; then
-    URL_DASHBOARD="https://$(curl -s https://ifconfig.me)"
+# CONSTRUCCIÓN DE LA URL (Priorizando Dominio)
+if [ ! -z "$DOMINIO" ]; then
+    URL_DASHBOARD="https://$DOMINIO/peers"
 else
-    URL_DASHBOARD="https://$DOMINIO"
+    # Si falla el dominio, mostramos un aviso en lugar de la IP
+    URL_DASHBOARD="[DOMINIO NO DETECTADO - Revisar setup.env]"
 fi
 
 SERVICIOS_ACTIVOS=$($DOCKER_CMD ps | grep "Up" | wc -l)

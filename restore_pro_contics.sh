@@ -110,9 +110,20 @@ $DOCKER_CMD up -d
 echo -e "⌛ Esperando estabilización del sistema (15s)..."
 sleep 15
 
-# Detectar Dominio y URL
-DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/setup.env" 2>/dev/null || echo "IP-DEL-SERVIDOR")
-URL_DASHBOARD="https://$DOMINIO"
+# Detectar Dominio desde setup.env para generar URL de acceso
+DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | head -n 1)
+
+# Si el dominio está vacío, intentar buscar en el archivo .env principal
+if [ -z "$DOMINIO" ]; then
+    DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/.env" 2>/dev/null | head -n 1)
+fi
+
+# Fallback final si no se encuentra dominio configurado
+if [ -z "$DOMINIO" ]; then
+    URL_DASHBOARD="https://$(curl -s https://ifconfig.me)"
+else
+    URL_DASHBOARD="https://$DOMINIO"
+fi
 
 SERVICIOS_ACTIVOS=$($DOCKER_CMD ps | grep "Up" | wc -l)
 

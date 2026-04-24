@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===========================================================================
-# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.1) - CONTICS
+# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.3) - CONTICS
 # ===========================================================================
 # Autor: Gemino - CONTICS
 # Funcionalidad: Diagnóstico de red/firewall + Inyección Docker + Reporte URL
@@ -110,20 +110,28 @@ $DOCKER_CMD up -d
 echo -e "⌛ Esperando estabilización del sistema (15s)..."
 sleep 15
 
-# EXTRACCIÓN LIMPIA DEL DOMINIO
-# Buscamos NETBIRD_DOMAIN, quitamos comillas, espacios y aseguramos que solo traiga la cadena de texto
-DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs | head -n 1)
+# BUSQUEDA MULTI-ARCHIVO DEL DOMINIO
+# Buscamos en setup.env y .env quitando comillas y espacios
+DOMINIO_SETUP=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
+DOMINIO_ENV=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 
-if [ -z "$DOMINIO" ]; then
-    DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs | head -n 1)
+# Elegir el primero que no esté vacío
+if [ ! -z "$DOMINIO_SETUP" ]; then
+    DOMINIO=$DOMINIO_SETUP
+elif [ ! -z "$DOMINIO_ENV" ]; then
+    DOMINIO=$DOMINIO_ENV
+else
+    # Intento 3: Escaneo profundo de archivos de configuración
+    DOMINIO=$(grep -r "https://" "$PROJECT_DIR" --include="*.json" --include="*.conf" 2>/dev/null | grep -oP '(?<=https://)[a-zA-Z0-9.-]+' | grep -v "github" | head -n 1)
 fi
 
-# CONSTRUCCIÓN DE LA URL (Priorizando Dominio)
+# CONSTRUCCIÓN DE LA URL
 if [ ! -z "$DOMINIO" ]; then
     URL_DASHBOARD="https://$DOMINIO/peers"
 else
-    # Si falla el dominio, mostramos un aviso en lugar de la IP
-    URL_DASHBOARD="[DOMINIO NO DETECTADO - Revisar setup.env]"
+    # Si todo falla, advertencia clara
+    IP_PUBLICA=$(curl -s https://ifconfig.me)
+    URL_DASHBOARD="https://$IP_PUBLICA/peers (ADVERTENCIA: Dominio no detectado en .env o setup.env)"
 fi
 
 SERVICIOS_ACTIVOS=$($DOCKER_CMD ps | grep "Up" | wc -l)
@@ -144,4 +152,4 @@ fi
 
 # Limpieza final
 rm -rf $TEMP_RESTORE
-rm "/tmp/$BACKUP_FILE"
+rm -f "/tmp/$BACKUP_FILE"

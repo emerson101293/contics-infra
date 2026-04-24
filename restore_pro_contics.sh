@@ -1,16 +1,26 @@
 #!/bin/bash
 # ===========================================================================
-# SISTEMA DE RESTAURACIÓN UNIVERSAL - CONTICS-NETBIRD (NUBE & LOCAL)
+# SISTEMA DE RESTAURACIÓN UNIVERSAL - CONTICS-NETBIRD (OPTIMIZADO)
 # ===========================================================================
 # Autor: Gemino - CONTICS
-# Funcionalidad: Detecta el usuario actual y restaura desde Drive + GitHub.
+# Funcionalidad: Restaura desde Drive + Notifica a Telegram + Configura GitHub
 # ===========================================================================
 
-# 1. CONFIGURACIÓN DINÁMICA (Funciona en /home/ubuntu o /home/tu_usuario)
+# 1. CONFIGURACIÓN DINÁMICA Y TELEGRAM
 PROJECT_DIR="$HOME/netbird"
 REMOTE_FOLDER="CONTICS-NETBIRD-BACKUP-PROD"
 TEMP_RESTORE="/tmp/restore_temp"
-GITHUB_RAW_URL="https://raw.githubusercontent.com/emerson101293/contics-infra/main/backup.sh"
+# URL de tu script optimizado en GitHub (Lanzador)
+GITHUB_PRO_URL="https://raw.githubusercontent.com/emerson101293/contics-infra/refs/heads/main/backup_pro_contics.sh"
+
+# Credenciales de Telegram
+TOKEN="8693420261:AAH0RQ-7LySZ03gglYDYOjJbY1xJonv_fak"
+CHAT_ID="6902736310"
+
+enviar_telegram() {
+    curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+        -d chat_id="$CHAT_ID" -d parse_mode="Markdown" -d text="$1" > /dev/null
+}
 
 # Detectar comando Docker Compose disponible
 if docker compose version >/dev/null 2>&1; then
@@ -20,10 +30,12 @@ else
 fi
 
 echo "=== ⚠️ INICIANDO RESTAURACIÓN EN: $PROJECT_DIR ==="
+enviar_telegram "🚨 *ALERTA DE RESCATE*: Iniciando proceso de recuperación en SVR-ORACLE..."
 
 # 2. VERIFICACIÓN DE DEPENDENCIAS
 if ! rclone listremotes | grep -q "^drive:"; then
     echo "❌ Error: Rclone no configurado o sin remoto 'drive:'."
+    enviar_telegram "❌ *ERROR*: Rclone no está configurado en este servidor."
     exit 1
 fi
 
@@ -36,10 +48,12 @@ read BACKUP_FILE
 
 # 4. DESCARGA DEL PAQUETE
 echo "☁️ Descargando archivo..."
+enviar_telegram "☁️ Descargando paquete: $BACKUP_FILE de la nube..."
 rclone copy "drive:$REMOTE_FOLDER/$BACKUP_FILE" /tmp/ -P
 
 if [ ! -f "/tmp/$BACKUP_FILE" ]; then
     echo "❌ Error: No se encontró el archivo descargado."
+    enviar_telegram "❌ *ERROR CRÍTICO*: No se pudo bajar el archivo de Drive."
     exit 1
 fi
 
@@ -53,7 +67,7 @@ echo "🧹 Limpiando temporales..."
 rm -rf $TEMP_RESTORE && mkdir -p $TEMP_RESTORE
 tar -xzf "/tmp/$BACKUP_FILE" -C $TEMP_RESTORE
 
-# 7. TRASPLANTE DE DATOS (INJECCIÓN QUIRÚRGICA)
+# 7. TRASPLANTE DE DATOS (INYECCIÓN QUIRÚRGICA)
 echo "📦 Inyectando bases de datos en Volúmenes Docker..."
 # Inyectar Management (Configuración de Red y Pares)
 docker run --rm -v netbird_netbird_management:/to -v $TEMP_RESTORE:/from alpine sh -c "cd /to && rm -rf ./* && tar -xzf /from/data_mgmt.tar.gz -C ."
@@ -62,32 +76,31 @@ docker run --rm -v netbird_netbird_zdb_data:/to -v $TEMP_RESTORE:/from alpine sh
 
 # 8. RESTAURACIÓN DE ARCHIVOS DE CONFIGURACIÓN
 echo "📝 Restaurando archivos del proyecto..."
-cp -r $TEMP_RESTORE/* "$PROJECT_DIR/"
+cp -r $TEMP_RESTORE/* "$PROJECT_DIR/" 2>/dev/null
 rm -f "$PROJECT_DIR"/*.tar.gz
 
-# 9. SINCRONIZACIÓN CON GITHUB (Lógica actualizada)
-echo "🔄 Sincronizando script de backup desde GitHub..."
-curl -fsSL "$GITHUB_RAW_URL" -o "$PROJECT_DIR/backup.sh"
-
-if [ $? -eq 0 ]; then
-    chmod +x "$PROJECT_DIR/backup.sh"
-    sed -i 's/\r$//' "$PROJECT_DIR/backup.sh"
-    echo "✅ backup.sh actualizado."
-else
-    echo "⚠️ No se pudo conectar a GitHub. Usando versión del backup."
-    chmod +x "$PROJECT_DIR/backup.sh"
-fi
+# 9. PROGRAMACIÓN DEL LANZADOR (Automatización GitHub)
+echo "🔄 Configurando lanzador automático desde GitHub..."
+# Esta línea asegura que el cron use siempre la versión más reciente de GitHub
+(crontab -l 2>/dev/null | grep -v "backup_pro_contics.sh"; echo "00 03 * * * curl -sSL $GITHUB_PRO_URL | bash") | crontab -
 
 # 10. ARRANQUE DEL SISTEMA
 echo "🚀 Levantando infraestructura CONTICS..."
 $DOCKER_CMD up -d
 
-# 11. RE-PROGRAMACIÓN DEL CRON (Seguro de vida)
-echo "⏰ Asegurando backup automático (03:00 AM)..."
-(crontab -l 2>/dev/null | grep -v "backup.sh"; echo "00 03 * * * $PROJECT_DIR/backup.sh > $PROJECT_DIR/backup.log 2>&1") | crontab -
+# 11. VERIFICACIÓN DE SALUD
+echo "⌛ Verificando estado de los servicios..."
+sleep 12
+SERVICIOS_ACTIVOS=$($DOCKER_CMD ps | grep "Up" | wc -l)
 
 # 12. LIMPIEZA FINAL
 rm -rf $TEMP_RESTORE
 rm "/tmp/$BACKUP_FILE"
 
-echo "=== ✅ RESTAURACIÓN COMPLETADA EXITOSAMENTE ==="
+if [ "$SERVICIOS_ACTIVOS" -gt 0 ]; then
+    echo "=== ✅ RESTAURACIÓN COMPLETADA EXITOSAMENTE ==="
+    enviar_telegram "✅ *SISTEMA RECUPERADO EXITOSAMENTE*%0A📂 *Archivo*: $BACKUP_FILE%0A🚀 *Estado*: NetBird Online%0A⏰ *Cron*: Backup diario re-activado (Lanzador GitHub)."
+else
+    echo "⚠️ Restauración de archivos terminada, pero los servicios no arrancaron."
+    enviar_telegram "⚠️ *ATENCIÓN*: Los datos se restauraron pero el sistema no inició automáticamente. Revisar 'docker ps'."
+fi

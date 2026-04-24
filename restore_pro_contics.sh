@@ -1,9 +1,9 @@
 #!/bin/bash
 # ===========================================================================
-# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.3) - CONTICS
+# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.4) - CONTICS
 # ===========================================================================
 # Autor: Gemino - CONTICS
-# Funcionalidad: Diagnóstico de red/firewall + Inyección Docker + Reporte URL
+# Funcionalidad: Diagnóstico + Inyección Docker + Reporte URL + Usuario Admin
 # ===========================================================================
 
 # --- [ CONFIGURACIÓN ] ---
@@ -32,9 +32,9 @@ clear
 echo -e "${GREEN}🔍 INICIANDO DIAGNÓSTICO DE MIGRACIÓN...${NC}"
 echo "----------------------------------------------------------"
 
-# 1. Identificación de Usuario
-USUARIO=$(whoami)
-echo -e "👤 Usuario detectado: ${YELLOW}$USUARIO${NC}"
+# 1. Identificación de Usuario del Sistema
+USUARIO_SISTEMA=$(whoami)
+echo -e "👤 Usuario del sistema: ${YELLOW}$USUARIO_SISTEMA${NC}"
 
 # 2. Verificación de Docker y Rclone
 if ! command -v docker &> /dev/null; then
@@ -74,7 +74,7 @@ read BACKUP_FILE
 
 if [ -z "$BACKUP_FILE" ]; then echo "Operación cancelada."; exit 1; fi
 
-enviar_telegram "🚨 *ALERTA DE MIGRACIÓN*: Iniciando restauración en SVR-ORACLE%0A👤 *User:* $USUARIO%0A📦 *File:* $BACKUP_FILE"
+enviar_telegram "🚨 *ALERTA DE MIGRACIÓN*: Iniciando restauración en SVR-ORACLE%0A👤 *User:* $USUARIO_SISTEMA%0A📦 *File:* $BACKUP_FILE"
 
 echo -e "${GREEN}☁️ Descargando paquete...${NC}"
 rclone copy "drive:$REMOTE_FOLDER/$BACKUP_FILE" /tmp/ -P
@@ -110,18 +110,25 @@ $DOCKER_CMD up -d
 echo -e "⌛ Esperando estabilización del sistema (15s)..."
 sleep 15
 
+# BUSQUEDA DEL NOMBRE DE USUARIO ADMIN / ORGANIZACIÓN
+# Intentamos buscar el correo del administrador o el usuario inicial en Zitadel/Management
+USER_ADMIN=$(grep -oP '(?<=NETBIRD_ZITADEL_ADMIN_USER=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
+if [ -z "$USER_ADMIN" ]; then
+    USER_ADMIN=$(grep -oP '(?<=CITADEL_ADMIN_EMAIL=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
+fi
+if [ -z "$USER_ADMIN" ]; then
+    USER_ADMIN=$USUARIO_SISTEMA
+fi
+
 # BUSQUEDA MULTI-ARCHIVO DEL DOMINIO
-# Buscamos en setup.env y .env quitando comillas y espacios
 DOMINIO_SETUP=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 DOMINIO_ENV=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 
-# Elegir el primero que no esté vacío
 if [ ! -z "$DOMINIO_SETUP" ]; then
     DOMINIO=$DOMINIO_SETUP
 elif [ ! -z "$DOMINIO_ENV" ]; then
     DOMINIO=$DOMINIO_ENV
 else
-    # Intento 3: Escaneo profundo de archivos de configuración
     DOMINIO=$(grep -r "https://" "$PROJECT_DIR" --include="*.json" --include="*.conf" 2>/dev/null | grep -oP '(?<=https://)[a-zA-Z0-9.-]+' | grep -v "github" | head -n 1)
 fi
 
@@ -129,9 +136,8 @@ fi
 if [ ! -z "$DOMINIO" ]; then
     URL_DASHBOARD="https://$DOMINIO/peers"
 else
-    # Si todo falla, advertencia clara
     IP_PUBLICA=$(curl -s https://ifconfig.me)
-    URL_DASHBOARD="https://$IP_PUBLICA/peers (ADVERTENCIA: Dominio no detectado en .env o setup.env)"
+    URL_DASHBOARD="https://$IP_PUBLICA/peers (ADVERTENCIA: Dominio no detectado)"
 fi
 
 SERVICIOS_ACTIVOS=$($DOCKER_CMD ps | grep "Up" | wc -l)
@@ -140,10 +146,11 @@ if [ "$SERVICIOS_ACTIVOS" -gt 0 ]; then
     echo -e "=========================================================="
     echo -e "${GREEN}✅ MIGRACIÓN / RESTAURACIÓN COMPLETADA EXITOSAMENTE${NC}"
     echo -e "🌐 DASHBOARD: ${YELLOW}$URL_DASHBOARD${NC}"
-    echo -e "👤 OPERADOR: $USUARIO"
+    echo -e "👤 ADMIN: ${YELLOW}$USER_ADMIN${NC}"
+    echo -e "👤 SISTEMA: $USUARIO_SISTEMA"
     echo -e "=========================================================="
     
-    MENSAJE="✅ *SISTEMA RECUPERADO*%0A%0A👤 *Operador:* $USUARIO%0A🌐 *URL:* $URL_DASHBOARD%0A📦 *Paquete:* $BACKUP_FILE%0A🚀 *Estado:* Netbird Online"
+    MENSAJE="✅ *SISTEMA RECUPERADO*%0A%0A👤 *Admin:* $USER_ADMIN%0A👤 *Sistema:* $USUARIO_SISTEMA%0A🌐 *URL:* $URL_DASHBOARD%0A📦 *Paquete:* $BACKUP_FILE%0A🚀 *Estado:* Netbird Online"
     enviar_telegram "$MENSAJE"
 else
     echo -e "${RED}⚠️ ERROR: Los servicios no iniciaron correctamente.${NC}"

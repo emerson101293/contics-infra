@@ -1,9 +1,9 @@
 #!/bin/bash
 # ===========================================================================
-# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.6) - CONTICS
+# SISTEMA DE MIGRACIÓN Y RESTAURACIÓN PRO (v4.7) - CONTICS
 # ===========================================================================
 # Autor: Gemino - CONTICS
-# Funcionalidad: Diagnóstico + Inyección Docker + Reporte URL + Login de NetBird
+# Ajuste: Automatización Local + Hacker Terminal Output
 # ===========================================================================
 
 # --- [ CONFIGURACIÓN ] ---
@@ -20,6 +20,7 @@ CHAT_ID="6902736310"
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 enviar_telegram() {
@@ -91,8 +92,14 @@ echo "📝 Restaurando archivos de configuración (.env, setup.env)..."
 cp -r $TEMP_RESTORE/* "$PROJECT_DIR/" 2>/dev/null
 rm -f "$PROJECT_DIR"/*.tar.gz
 
-echo "🔄 Configurando respaldo automático desde GitHub..."
-(crontab -l 2>/dev/null | grep -v "backup_pro_contics.sh"; echo "00 03 * * * curl -sSL $GITHUB_PRO_URL | bash") | crontab -
+echo -e "${GREEN}🔄 Configurando respaldo automático LOCAL...${NC}"
+curl -sSL "$GITHUB_PRO_URL" -o "$PROJECT_DIR/backup_pro.sh"
+chmod +x "$PROJECT_DIR/backup_pro.sh"
+
+(crontab -l 2>/dev/null | grep -v "backup_pro_contics.sh" | grep -v "backup_pro.sh") > /tmp/cron_temp
+echo "00 03 * * * /bin/bash $PROJECT_DIR/backup_pro.sh >> $PROJECT_DIR/backup.log 2>&1" >> /tmp/cron_temp
+crontab /tmp/cron_temp
+rm /tmp/cron_temp
 
 echo -e "${GREEN}🚀 Levantando infraestructura...${NC}"
 $DOCKER_CMD up -d
@@ -103,41 +110,45 @@ sleep 15
 
 # BUSQUEDA DEL NOMBRE DE USUARIO DE LOGIN
 NETBIRD_USER=$(grep -oP '(?<=NETBIRD_ZITADEL_ADMIN_USER=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
-if [ -z "$NETBIRD_USER" ]; then
-    NETBIRD_USER=$(grep -oP '(?<=CITADEL_ADMIN_EMAIL=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
-fi
+[ -z "$NETBIRD_USER" ] && NETBIRD_USER=$(grep -oP '(?<=CITADEL_ADMIN_EMAIL=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 
-# BUSQUEDA DEL DOMINIO (Lógica Ultra-Resistente)
-# 1. Intentar desde variables oficiales
+# BUSQUEDA DEL DOMINIO
 DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/setup.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
 [ -z "$DOMINIO" ] && DOMINIO=$(grep -oP '(?<=NETBIRD_DOMAIN=).*' "$PROJECT_DIR/.env" 2>/dev/null | tr -d '"' | tr -d "'" | xargs)
+if [ -z "$DOMINIO" ] && [[ "$NETBIRD_USER" == *"@"* ]]; then DOMINIO=$(echo "$NETBIRD_USER" | cut -d'@' -f2); fi
 
-# 2. Si falla, intentar extraerlo del LOGIN USER (Ej: admin@contics-admin.duckdns.org -> contics-admin.duckdns.org)
-if [ -z "$DOMINIO" ] && [[ "$NETBIRD_USER" == *"@"* ]]; then
-    DOMINIO=$(echo "$NETBIRD_USER" | cut -d'@' -f2)
-fi
-
-# CONSTRUCCIÓN DE LA URL
 if [ ! -z "$DOMINIO" ] && [[ "$DOMINIO" != *" "* ]]; then
     URL_DASHBOARD="https://$DOMINIO/peers"
 else
-    # Solo si todo lo anterior falla, usamos la IP
     URL_DASHBOARD="https://$(curl -s https://ifconfig.me)/peers"
 fi
 
 SERVICIOS_ACTIVOS=$($DOCKER_CMD ps | grep "Up" | wc -l)
 
+# --- [ EL TOQUE HACKER FINAL ] ---
+clear
 if [ "$SERVICIOS_ACTIVOS" -gt 0 ]; then
-    echo -e "=========================================================="
-    echo -e "${GREEN}✅ MIGRACIÓN / RESTAURACIÓN COMPLETADA EXITOSAMENTE${NC}"
-    echo -e "🌐 DASHBOARD: ${YELLOW}$URL_DASHBOARD${NC}"
-    echo -e "👤 LOGIN USER: ${YELLOW}${NETBIRD_USER:-No detectado}${NC}"
-    echo -e "=========================================================="
+    echo -e "${GREEN}"
+    echo "  ██████╗ ██████╗ ███╗   ██╗████████╗██╗ ██████╗███████╗"
+    echo " ██╔════╝██╔═══██╗████╗  ██║╚══██╔══╝██║██╔════╝██╔════╝"
+    echo " ██║     ██║   ██║██╔██╗ ██║   ██║   ██║██║     ███████╗"
+    echo " ██║     ██║   ██║██║╚██╗██║   ██║   ██║██║     ╚════██║"
+    echo " ╚██████╗╚██████╔╝██║ ╚████║   ██║   ██║╚██████╗███████║"
+    echo "  ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝ ╚═════╝╚══════╝"
+    echo -e "${NC}"
+    echo -e "${CYAN}[SYSTEM INFO]${NC} -------------------------------------------"
+    echo -e "${GREEN}STATUS:${NC}       SYSTEM_RESTORED_SUCCESSFULLY"
+    echo -e "${GREEN}DOMAIN:${NC}       $DOMINIO"
+    echo -e "${GREEN}INTERFACE:${NC}    $URL_DASHBOARD"
+    echo -e "${GREEN}ADMIN_USER:${NC}   $NETBIRD_USER"
+    echo -e "${GREEN}SERVICES:${NC}     $SERVICIOS_ACTIVOS CONTAINERS ONLINE"
+    echo -e "${CYAN}----------------------------------------------------------${NC}"
+    echo -e "${YELLOW}>> SISTEMA FUNCIONANDO CON ÉXITO. ACCESO CONCEDIDO.${NC}"
     
-    MENSAJE="✅ *SISTEMA RECUPERADO*%0A%0A👤 *Login:* \`${NETBIRD_USER:-No detectado}\` %0A🌐 *URL:* $URL_DASHBOARD%0A📦 *Paquete:* $BACKUP_FILE%0A🚀 *Estado:* Netbird Online"
+    MENSAJE="✅ *SISTEMA RECUPERADO*%0A%0A👤 *Login:* \`${NETBIRD_USER:-No detectado}\` %0A🌐 *URL:* $URL_DASHBOARD%0A🚀 *Estado:* Netbird Online"
     enviar_telegram "$MENSAJE"
 else
-    echo -e "${RED}⚠️ ERROR: Los servicios no iniciaron correctamente.${NC}"
+    echo -e "${RED}⚠️ CRITICAL_FAILURE: SERVICES_NOT_RESPONDING${NC}"
     enviar_telegram "❌ *ERROR CRÍTICO*: Servicios caídos tras restauración."
 fi
 
